@@ -16,6 +16,11 @@ echo -e "${BLUE}==================================================${NC}"
 echo -e "${BLUE}   Container Registry Auto Installer (v2 / v3)    ${NC}"
 echo -e "${BLUE}==================================================${NC}"
 
+# Define command_exists early so it can be used by all functions
+command_exists() {
+    command -v "$@" > /dev/null 2>&1
+}
+
 # 1. Check if run as root
 if [ "$(id -u)" != "0" ]; then
     echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root atau dengan sudo.${NC}" >&2
@@ -58,13 +63,13 @@ uninstall_registry() {
         echo -e "${YELLOW}Docker tidak terdeteksi, melewati proses pembersihan container.${NC}"
     fi
     
-    # 3. Clean up storage data
-    read -rp "Tentukan direktori data yang ingin dihapus (Default: $DEFAULT_STORAGE): " STORAGE_DIR
+    # 3. Clean up storage data (read from TTY to support piping from curl)
+    read -rp "Tentukan direktori data yang ingin dihapus (Default: $DEFAULT_STORAGE): " STORAGE_DIR < /dev/tty
     STORAGE_DIR=${STORAGE_DIR:-$DEFAULT_STORAGE}
     
     if [ -d "$STORAGE_DIR" ]; then
         echo -e "${RED}Peringatan: Seluruh data registry di '$STORAGE_DIR' akan dihapus permanen!${NC}"
-        read -rp "Apakah Anda yakin ingin menghapus folder ini? [y/N]: " CONFIRM
+        read -rp "Apakah Anda yakin ingin menghapus folder ini? [y/N]: " CONFIRM < /dev/tty
         CONFIRM=${CONFIRM:-n}
         if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
             echo -e "${BLUE}Menghapus direktori data: $STORAGE_DIR...${NC}"
@@ -87,10 +92,6 @@ uninstall_registry() {
 if [ "$UNINSTALL" = true ]; then
     uninstall_registry
 fi
-
-command_exists() {
-    command -v "$@" > /dev/null 2>&1
-}
 
 # 2. Check & Install Docker
 if command_exists docker; then
@@ -117,11 +118,11 @@ else
     fi
 fi
 
-# 3. Ask Registry Version
+# 3. Ask Registry Version (read from TTY to support piping from curl)
 echo -e "\nPilih versi Container Registry yang ingin dideploy:"
 echo -e "1) Registry v2 (Docker Distribution - Legacy/Stable: registry:2)"
 echo -e "2) Registry v3 (CNCF Distribution OCI Spec - Modern: registry:3.0.0-alpha.1)"
-read -rp "Pilihan Anda [1-2] (Default: 2): " choice
+read -rp "Pilihan Anda [1-2] (Default: 2): " choice < /dev/tty
 choice=${choice:-2}
 
 if [ "$choice" = "1" ]; then
@@ -132,20 +133,20 @@ else
     VERSION_NAME="v3"
 fi
 
-# 4. Storage Configuration
-read -rp "Tentukan direktori penyimpanan data (Default: $DEFAULT_STORAGE): " STORAGE_DIR
+# 4. Storage Configuration (read from TTY to support piping from curl)
+read -rp "Tentukan direktori penyimpanan data (Default: $DEFAULT_STORAGE): " STORAGE_DIR < /dev/tty
 STORAGE_DIR=${STORAGE_DIR:-$DEFAULT_STORAGE}
 mkdir -p "$STORAGE_DIR"
 
-# 5. Authentication Configuration
-read -rp "Aktifkan autentikasi Username & Password? [y/N]: " ENABLE_AUTH
+# 5. Authentication Configuration (read from TTY to support piping from curl)
+read -rp "Aktifkan autentikasi Username & Password? [y/N]: " ENABLE_AUTH < /dev/tty
 ENABLE_AUTH=${ENABLE_AUTH:-n}
 
 AUTH_FLAGS=""
 IS_AUTH_ENABLED=false
 if [[ "$ENABLE_AUTH" =~ ^[Yy]$ ]]; then
-    read -rp "Masukkan Username: " AUTH_USER
-    read -rsp "Masukkan Password: " AUTH_PASS
+    read -rp "Masukkan Username: " AUTH_USER < /dev/tty
+    read -rsp "Masukkan Password: " AUTH_PASS < /dev/tty
     echo ""
     
     AUTH_DIR="${STORAGE_DIR}/auth"
@@ -164,8 +165,8 @@ if [[ "$ENABLE_AUTH" =~ ^[Yy]$ ]]; then
     fi
 fi
 
-# 6. Reverse Proxy & ACME Configuration
-read -rp "Aktifkan Reverse Proxy (Caddy)? [y/N]: " ENABLE_PROXY
+# 6. Reverse Proxy & ACME Configuration (read from TTY to support piping from curl)
+read -rp "Aktifkan Reverse Proxy (Caddy)? [y/N]: " ENABLE_PROXY < /dev/tty
 ENABLE_PROXY=${ENABLE_PROXY:-n}
 
 IS_PROXY_ENABLED=false
@@ -174,37 +175,37 @@ USE_HTTPS=false
 if [[ "$ENABLE_PROXY" =~ ^[Yy]$ ]]; then
     IS_PROXY_ENABLED=true
     
-    read -rp "Aktifkan HTTPS/SSL? [y/N]: " ENABLE_HTTPS
+    read -rp "Aktifkan HTTPS/SSL? [y/N]: " ENABLE_HTTPS < /dev/tty
     ENABLE_HTTPS=${ENABLE_HTTPS:-n}
     
     if [[ "$ENABLE_HTTPS" =~ ^[Yy]$ ]]; then
         USE_HTTPS=true
-        read -rp "Masukkan Domain Name (misal: registry.kamu.com): " DOMAIN_NAME
-        read -rp "Masukkan Email untuk Kontak ACME: " ACME_EMAIL
+        read -rp "Masukkan Domain Name (misal: registry.kamu.com): " DOMAIN_NAME < /dev/tty
+        read -rp "Masukkan Email untuk Kontak ACME: " ACME_EMAIL < /dev/tty
         
         echo -e "\nPilih Provider ACME:"
         echo -e "1) Let's Encrypt"
         echo -e "2) ZeroSSL (Membutuhkan EAB)"
         echo -e "3) Custom ACME (misal: Step-CA / Local CA)"
-        read -rp "Pilihan Anda [1-3] (Default: 1): " ACME_CHOICE
+        read -rp "Pilihan Anda [1-3] (Default: 1): " ACME_CHOICE < /dev/tty
         ACME_CHOICE=${ACME_CHOICE:-1}
         
         if [ "$ACME_CHOICE" = "2" ]; then
-            read -rp "Masukkan ZeroSSL EAB KID: " EAB_KID
-            read -rp "Masukkan ZeroSSL EAB HMAC Key: " EAB_HMAC
+            read -rp "Masukkan ZeroSSL EAB KID: " EAB_KID < /dev/tty
+            read -rp "Masukkan ZeroSSL EAB HMAC Key: " EAB_HMAC < /dev/tty
         elif [ "$ACME_CHOICE" = "3" ]; then
-            read -rp "Masukkan ACME Directory URL (misal: https://step-ca.local/acme/acme/directory): " ACME_URL
-            read -rp "Masukkan path file Root CA Certificate lokal (opsional): " CUSTOM_CA_PATH
+            read -rp "Masukkan ACME Directory URL (misal: https://step-ca.local/acme/acme/directory): " ACME_URL < /dev/tty
+            read -rp "Masukkan path file Root CA Certificate lokal (opsional): " CUSTOM_CA_PATH < /dev/tty
         fi
     else
         # Pada HTTP, Caddy dikonfigurasi sebagai catch-all (:80) sehingga bisa diakses dari IP/domain apa saja.
         # Input ini hanya digunakan untuk menampilkan petunjuk cara penggunaan di akhir skrip.
-        read -rp "Masukkan Domain Name / Host IP utama untuk petunjuk HTTP (Default: localhost): " DOMAIN_NAME
+        read -rp "Masukkan Domain Name / Host IP utama untuk petunjuk HTTP (Default: localhost): " DOMAIN_NAME < /dev/tty
         DOMAIN_NAME=${DOMAIN_NAME:-localhost}
     fi
 else
     # Tanpa Reverse Proxy: Butuh Port ekspos langsung ke host
-    read -rp "Tentukan port ekspos registry ke host (Default: $DEFAULT_PORT): " PORT
+    read -rp "Tentukan port ekspos registry ke host (Default: $DEFAULT_PORT): " PORT < /dev/tty
     PORT=${PORT:-$DEFAULT_PORT}
     
     if command_exists ss; then
