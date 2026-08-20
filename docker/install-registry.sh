@@ -326,18 +326,21 @@ collect_user_inputs() {
                 return 1
             fi
             
-            read_input "Masukkan Email untuk Kontak ACME: " ACME_EMAIL
-            if [ -z "$ACME_EMAIL" ]; then
-                echo -e "${RED}Error: Email ACME tidak boleh kosong!${NC}" >&2
-                return 1
-            fi
-            
-            echo -e "\nPilih Provider ACME:"
-            echo -e "1) Let's Encrypt"
-            echo -e "2) ZeroSSL (Membutuhkan EAB)"
+            echo -e "\nPilih Provider SSL/HTTPS:"
+            echo -e "1) Let's Encrypt (Otomatis & Publik)"
+            echo -e "2) ZeroSSL (Otomatis & Publik - Membutuhkan EAB)"
             echo -e "3) Custom ACME (misal: Step-CA / Local CA)"
-            read_input "Pilihan Anda [1-3] (Default: 1): " ACME_CHOICE
+            echo -e "4) Self-Signed SSL (Sertifikat Internal/Lokal)"
+            read_input "Pilihan Anda [1-4] (Default: 1): " ACME_CHOICE
             ACME_CHOICE=${ACME_CHOICE:-1}
+            
+            if [ "$ACME_CHOICE" != "4" ]; then
+                read_input "Masukkan Email untuk Kontak ACME: " ACME_EMAIL
+                if [ -z "$ACME_EMAIL" ]; then
+                    echo -e "${RED}Error: Email ACME tidak boleh kosong!${NC}" >&2
+                    return 1
+                fi
+            fi
             
             if [ "$ACME_CHOICE" = "2" ]; then
                 read_input "Masukkan ZeroSSL EAB KID: " EAB_KID
@@ -516,6 +519,22 @@ $DOMAIN_NAME {
 }
 EOF
             fi
+        elif [ "$ACME_CHOICE" = "4" ]; then
+            # Self-Signed SSL (Internal CA)
+            cat <<EOF > "$caddyfile_path"
+$DOMAIN_NAME {
+    tls internal
+
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
+}
+EOF
         fi
     else
         # HTTP Saja (Catch-all :80 agar semua domain & IP bisa masuk tanpa dibatasi)
@@ -618,6 +637,18 @@ show_success_summary() {
         echo -e "Karena Anda menggunakan HTTP biasa, Anda perlu menambahkan host ini ke konfigurasi"
         echo -e "insecure-registries di file /etc/docker/daemon.json di komputer klien Anda:"
         echo -e "   {\n     \"insecure-registries\": [\"${docker_target}\"]\n   }"
+    fi
+
+    if [ "$USE_HTTPS" = true ] && [ "$ACME_CHOICE" = "4" ]; then
+        echo -e "\n${YELLOW}Catatan Penting untuk Self-Signed SSL:${NC}"
+        echo -e "Agar Docker daemon di komputer klien (atau server Dokploy) mempercayai sertifikat ini,"
+        echo -e "Anda harus menyalin file Root CA dari server ini ke direktori sertifikat klien:"
+        echo -e "1. Buat folder sertifikat untuk domain registry:"
+        echo -e "   ${YELLOW}sudo mkdir -p /etc/docker/certs.d/${DOMAIN_NAME}${NC}"
+        echo -e "2. Salin file Root CA ke direktori tersebut:"
+        echo -e "   ${YELLOW}sudo cp ${STORAGE_DIR}/caddy/data/caddy/pki/authorities/local/root.crt /etc/docker/certs.d/${DOMAIN_NAME}/ca.crt${NC}"
+        echo -e "3. Restart Docker daemon di klien/Dokploy server:"
+        echo -e "   ${YELLOW}sudo systemctl restart docker${NC}"
     fi
 }
 
