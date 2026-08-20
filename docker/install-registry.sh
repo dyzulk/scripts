@@ -21,6 +21,23 @@ command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
 
+# Helper function to get local IP
+get_local_ip() {
+    local ip
+    ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}')
+    if [ -z "$ip" ]; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    echo "${ip:-127.0.0.1}"
+}
+
+# Helper function to get public IP
+get_public_ip() {
+    local ip
+    ip=$(curl -sS --max-time 3 ifconfig.me 2>/dev/null)
+    echo "$ip"
+}
+
 # Helper function to read input safely in both piped and interactive environments
 read_input() {
     local prompt="$1"
@@ -162,8 +179,9 @@ generate_htpasswd() {
     
     # 2. Gunakan Docker dengan image httpd:alpine (ringan dan pasti memiliki htpasswd)
     if command_exists docker; then
-        echo -e "${BLUE}Menggunakan kontainer httpd:alpine untuk membuat htpasswd...${NC}"
-        docker pull -q httpd:alpine >/dev/null 2>&1
+        echo -e "${BLUE}Mengunduh base image httpd:alpine untuk utilitas htpasswd...${NC}"
+        docker pull httpd:alpine
+        echo -e "${BLUE}Membuat file kredensial menggunakan kontainer httpd:alpine...${NC}"
         docker run --rm --entrypoint htpasswd httpd:alpine -Bbn "$user" "$pass" > "$out_file" 2>/dev/null
         if [ $? -eq 0 ] && [ -s "$out_file" ]; then
             return 0
@@ -286,8 +304,7 @@ collect_user_inputs() {
             fi
         else
             # Pada HTTP, Caddy dikonfigurasi sebagai catch-all (:80) sehingga bisa diakses dari IP/domain apa saja.
-            read_input "Masukkan Domain Name / Host IP utama untuk petunjuk HTTP (Default: localhost): " DOMAIN_NAME
-            DOMAIN_NAME=${DOMAIN_NAME:-localhost}
+            DOMAIN_NAME=""
         fi
     else
         # Tanpa Reverse Proxy: Butuh Port ekspos langsung ke host
@@ -327,6 +344,10 @@ deploy_registry() {
         echo -e "${YELLOW}Menghapus container registry-proxy lama...${NC}"
         docker rm -f registry-proxy >/dev/null 2>&1
     fi
+
+    # Mengunduh image secara transparan agar kemajuan pengunduhan tampil di terminal
+    echo -e "${BLUE}Mengunduh image ${REGISTRY_IMAGE}...${NC}"
+    docker pull "${REGISTRY_IMAGE}"
 
     echo -e "${BLUE}Mendeploy Container Registry ${VERSION_NAME}...${NC}"
     
@@ -421,6 +442,10 @@ EOF
 EOF
     fi
     
+    # Unduh Caddy image secara transparan agar tampil di terminal
+    echo -e "${BLUE}Mengunduh image caddy:latest...${NC}"
+    docker pull caddy:latest
+
     echo -e "${BLUE}Mendeploy Caddy Reverse Proxy Container...${NC}"
     local caddy_volume_ca=""
     if [ "$USE_HTTPS" = true ] && [ "$ACME_CHOICE" = "3" ] && [ -n "$CUSTOM_CA_PATH" ] && [ -f "$CUSTOM_CA_PATH" ]; then
@@ -447,6 +472,9 @@ EOF
 
 # 9. Summary & Instructions
 show_success_summary() {
+    local local_ip=$(get_local_ip)
+    local public_ip=$(get_public_ip)
+
     echo -e "${GREEN}==================================================${NC}"
     echo -e "${GREEN}   Container Registry Berhasil Dideploy!          ${NC}"
     echo -e "${GREEN}==================================================${NC}"
@@ -457,16 +485,28 @@ show_success_summary() {
     if [ "$IS_PROXY_ENABLED" = true ]; then
         echo -e "Reverse Proxy: Caddy (Aktif)"
         if [ "$USE_HTTPS" = true ]; then
-            echo -e "Domain / URL: ${YELLOW}https://${DOMAIN_NAME}${NC}"
+            echo -e "Domain / URL Utama: ${YELLOW}https://${DOMAIN_NAME}${NC}"
+            echo -e "Akses IP Lokal (HTTP): ${YELLOW}http://${local_ip}${NC} (SSL tidak berlaku untuk IP)"
+            if [ -n "$public_ip" ]; then
+                echo -e "Akses IP Publik (HTTP): ${YELLOW}http://${public_ip}${NC} (SSL tidak berlaku untuk IP)"
+            fi
             url_access="https://${DOMAIN_NAME}"
         else
-            echo -e "Domain / URL: ${YELLOW}http://${DOMAIN_NAME}${NC}"
-            url_access="http://${DOMAIN_NAME}"
+            echo -e "Domain / URL Utama (HTTP): Semua Domain / IP terarah ke server"
+            echo -e "Akses IP Lokal (HTTP): ${YELLOW}http://${local_ip}${NC}"
+            if [ -n "$public_ip" ]; then
+                echo -e "Akses IP Publik (HTTP): ${YELLOW}http://${public_ip}${NC}"
+            fi
+            url_access="http://${local_ip}"
         fi
     else
         echo -e "Reverse Proxy: Tidak Aktif"
         echo -e "Port Ekspos Host: ${PORT}"
-        url_access="localhost:${PORT}"
+        echo -e "Akses IP Lokal: ${YELLOW}http://${local_ip}:${PORT}${NC}"
+        if [ -n "$public_ip" ]; then
+            echo -e "Akses IP Publik: ${YELLOW}http://${public_ip}:${PORT}${NC}"
+        fi
+        url_access="${local_ip}:${PORT}"
     fi
     
     echo -e "\nCara Penggunaan (Push & Pull):"
