@@ -526,10 +526,10 @@ $DOMAIN_NAME {
     tls internal
 
     # Endpoint publik untuk mengunduh Root CA Certificate
-    route /ca.crt {
-        rewrite * /root.crt
+    handle /ca.crt {
+        rewrite * /caddy/pki/authorities/local/root.crt
         file_server {
-            root /data/caddy/pki/authorities/local
+            root /data
         }
     }
 
