@@ -232,7 +232,7 @@ setup_authentication() {
 collect_user_inputs() {
     echo -e "\nPilih versi Container Registry yang ingin dideploy:"
     echo -e "1) Registry v2 (Docker Distribution - Legacy/Stable: registry:2)"
-    echo -e "2) Registry v3 (CNCF Distribution OCI Spec - Modern: registry:3.0.0-alpha.1)"
+    echo -e "2) Registry v3 (CNCF Distribution OCI Spec - Modern: registry:3)"
     read_input "Pilihan Anda [1-2] (Default: 2): " choice
     choice=${choice:-2}
     
@@ -240,7 +240,7 @@ collect_user_inputs() {
         REGISTRY_IMAGE="registry:2"
         VERSION_NAME="v2"
     else
-        REGISTRY_IMAGE="registry:3.0.0-alpha.1"
+        REGISTRY_IMAGE="registry:3"
         VERSION_NAME="v3"
     fi
     
