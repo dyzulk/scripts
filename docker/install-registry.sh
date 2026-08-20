@@ -525,6 +525,14 @@ EOF
 $DOMAIN_NAME {
     tls internal
 
+    # Endpoint publik untuk mengunduh Root CA Certificate
+    route /ca.crt {
+        rewrite * /root.crt
+        file_server {
+            root /data/caddy/pki/authorities/local
+        }
+    }
+
     handle /v2/* {
         reverse_proxy docker-registry:5000
     }
@@ -642,13 +650,8 @@ show_success_summary() {
     if [ "$USE_HTTPS" = true ] && [ "$ACME_CHOICE" = "4" ]; then
         echo -e "\n${YELLOW}Catatan Penting untuk Self-Signed SSL:${NC}"
         echo -e "Agar Docker daemon di komputer klien (atau server Dokploy) mempercayai sertifikat ini,"
-        echo -e "Anda harus menyalin file Root CA dari server ini ke direktori sertifikat klien:"
-        echo -e "1. Buat folder sertifikat untuk domain registry:"
-        echo -e "   ${YELLOW}sudo mkdir -p /etc/docker/certs.d/${DOMAIN_NAME}${NC}"
-        echo -e "2. Salin file Root CA ke direktori tersebut:"
-        echo -e "   ${YELLOW}sudo cp ${STORAGE_DIR}/caddy/data/caddy/pki/authorities/local/root.crt /etc/docker/certs.d/${DOMAIN_NAME}/ca.crt${NC}"
-        echo -e "3. Restart Docker daemon di klien/Dokploy server:"
-        echo -e "   ${YELLOW}sudo systemctl restart docker${NC}"
+        echo -e "jalankan perintah satu baris (one-liner) berikut di server Dokploy/klien tersebut:"
+        echo -e "   ${YELLOW}sudo mkdir -p /etc/docker/certs.d/${DOMAIN_NAME} && sudo curl -kfsSL https://${DOMAIN_NAME}/ca.crt -o /etc/docker/certs.d/${DOMAIN_NAME}/ca.crt && sudo systemctl restart docker${NC}"
     fi
 }
 
