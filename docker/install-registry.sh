@@ -4,6 +4,7 @@
 DOCKER_VERSION="28.5.0"
 DEFAULT_PORT="5000"
 DEFAULT_STORAGE="/var/lib/registry"
+LANDING_PAGE_URL="https://raw.githubusercontent.com/dyzulk/scripts/main/docker/index-registry.html"
 
 # Color constants
 GREEN="\033[0;32m"
@@ -82,6 +83,37 @@ check_system_requirements() {
         return 1
     fi
     return 0
+}
+
+# 1b. Check & Install Curl
+install_curl() {
+    if command_exists curl; then
+        echo -e "${GREEN}✓ curl sudah terinstall.${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}curl belum terinstall. Menginstal curl...${NC}"
+
+    if command_exists apt-get; then
+        apt-get update -qq && apt-get install -y -qq curl
+    elif command_exists dnf; then
+        dnf install -y -q curl
+    elif command_exists yum; then
+        yum install -y -q curl
+    elif command_exists apk; then
+        apk add --no-cache curl
+    else
+        echo -e "${RED}Error: Tidak dapat mendeteksi package manager untuk menginstal curl.${NC}" >&2
+        return 1
+    fi
+
+    if command_exists curl; then
+        echo -e "${GREEN}✓ curl berhasil diinstal.${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}Error: Gagal menginstal curl.${NC}" >&2
+    return 1
 }
 
 # 2. Uninstall Process
@@ -226,6 +258,26 @@ setup_authentication() {
         fi
     fi
     return 0
+}
+
+# 5b. Download Landing Page HTML
+download_landing_page() {
+    if [ "$IS_PROXY_ENABLED" != true ]; then
+        echo -e "${YELLOW}Reverse Proxy tidak aktif, melewati unduhan landing page.${NC}"
+        return 0
+    fi
+
+    local html_dir="${STORAGE_DIR}/caddy/html"
+    mkdir -p "$html_dir"
+
+    echo -e "${BLUE}Mengunduh landing page dari repository...${NC}"
+    if curl -fsSL "${LANDING_PAGE_URL}" -o "${html_dir}/index.html"; then
+        echo -e "${GREEN}✓ Landing page berhasil diunduh ke ${html_dir}/index.html${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}Error: Gagal mengunduh landing page dari ${LANDING_PAGE_URL}${NC}" >&2
+    return 1
 }
 
 # 6. Collect user configurations
@@ -396,7 +448,15 @@ configure_and_deploy_proxy() {
             cat <<EOF > "$caddyfile_path"
 $DOMAIN_NAME {
     tls $ACME_EMAIL
-    reverse_proxy docker-registry:5000
+
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
 }
 EOF
         elif [ "$ACME_CHOICE" = "2" ]; then
@@ -407,7 +467,15 @@ $DOMAIN_NAME {
         ca https://acme.zerossl.com/v2/DV90
         eab $EAB_KID $EAB_HMAC
     }
-    reverse_proxy docker-registry:5000
+
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
 }
 EOF
         elif [ "$ACME_CHOICE" = "3" ]; then
@@ -419,7 +487,15 @@ $DOMAIN_NAME {
         ca $ACME_URL
         ca_trusted_pem_file /etc/caddy/root.crt
     }
-    reverse_proxy docker-registry:5000
+
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
 }
 EOF
             else
@@ -428,7 +504,15 @@ $DOMAIN_NAME {
     tls $ACME_EMAIL {
         ca $ACME_URL
     }
-    reverse_proxy docker-registry:5000
+
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
 }
 EOF
             fi
@@ -437,7 +521,14 @@ EOF
         # HTTP Saja (Catch-all :80 agar semua domain & IP bisa masuk tanpa dibatasi)
         cat <<EOF > "$caddyfile_path"
 :80 {
-    reverse_proxy docker-registry:5000
+    handle /v2/* {
+        reverse_proxy docker-registry:5000
+    }
+
+    handle {
+        root * /usr/share/caddy
+        file_server
+    }
 }
 EOF
     fi
@@ -461,6 +552,7 @@ EOF
         -v "$caddyfile_path":/etc/caddy/Caddyfile \
         -v "${caddy_dir}/data":/data \
         -v "${caddy_dir}/config":/config \
+        -v "${caddy_dir}/html":/usr/share/caddy \
         $caddy_volume_ca \
         caddy:latest
         
@@ -549,12 +641,16 @@ main() {
     fi
     
     # 3. Main deployment pipeline (Nested-If / Modular)
-    if install_docker; then
-        if collect_user_inputs; then
-            if deploy_registry; then
-                if configure_and_deploy_proxy; then
-                    show_success_summary
-                    return 0
+    if install_curl; then
+        if install_docker; then
+            if collect_user_inputs; then
+                if deploy_registry; then
+                    if download_landing_page; then
+                        if configure_and_deploy_proxy; then
+                            show_success_summary
+                            return 0
+                        fi
+                    fi
                 fi
             fi
         fi
