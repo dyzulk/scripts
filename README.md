@@ -24,12 +24,20 @@ This repository contains a collection of shell scripts to simplify system admini
 
 ### 2. APT Configurations (Debian)
 * **[`apt/docker-install.sh`](apt/docker-install.sh)**: Adds official Docker GPG keys and setup HTTP-based official Docker APT repository for Debian.
-  * **How to use**:
+  * **How to use (Direct via curl)**:
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/dyzulk/scripts/main/apt/docker-install.sh | sudo bash
+    ```
+  * **How to use (Local)**:
     ```bash
     sudo ./apt/docker-install.sh
     ```
 * **[`apt/https-to-http.sh`](apt/https-to-http.sh)**: Changes default Debian mirror URLs from HTTPS to HTTP (useful in closed network environments blocking HTTPS apt traffic).
-  * **How to use**:
+  * **How to use (Direct via curl)**:
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/dyzulk/scripts/main/apt/https-to-http.sh | sudo bash
+    ```
+  * **How to use (Local)**:
     ```bash
     sudo ./apt/https-to-http.sh
     ```
