@@ -184,8 +184,8 @@ if [[ "$ENABLE_AUTH" =~ ^[Yy]$ ]]; then
     mkdir -p "$AUTH_DIR"
     
     echo -e "${BLUE}Membuat file kredensial htpasswd...${NC}"
-    docker pull -q "${REGISTRY_IMAGE}"
-    docker run --rm --entrypoint htpasswd "${REGISTRY_IMAGE}" -Bbn "$AUTH_USER" "$AUTH_PASS" > "${AUTH_DIR}/htpasswd" 2>/dev/null
+    docker pull -q registry:2
+    docker run --rm --entrypoint htpasswd registry:2 -Bbn "$AUTH_USER" "$AUTH_PASS" > "${AUTH_DIR}/htpasswd" 2>/dev/null
     
     if [ $? -eq 0 ] && [ -s "${AUTH_DIR}/htpasswd" ]; then
         echo -e "${GREEN}✓ File htpasswd berhasil dibuat.${NC}"
