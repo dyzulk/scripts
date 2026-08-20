@@ -481,7 +481,7 @@ show_success_summary() {
     echo -e "Versi Registry: ${VERSION_NAME} (${REGISTRY_IMAGE})"
     echo -e "Direktori Storage: ${STORAGE_DIR}"
     
-    local url_access=""
+    local docker_target=""
     if [ "$IS_PROXY_ENABLED" = true ]; then
         echo -e "Reverse Proxy: Caddy (Aktif)"
         if [ "$USE_HTTPS" = true ]; then
@@ -490,14 +490,14 @@ show_success_summary() {
             if [ -n "$public_ip" ]; then
                 echo -e "Akses IP Publik (HTTP): ${YELLOW}http://${public_ip}${NC} (SSL tidak berlaku untuk IP)"
             fi
-            url_access="https://${DOMAIN_NAME}"
+            docker_target="${DOMAIN_NAME}"
         else
             echo -e "Domain / URL Utama (HTTP): Semua Domain / IP terarah ke server"
             echo -e "Akses IP Lokal (HTTP): ${YELLOW}http://${local_ip}${NC}"
             if [ -n "$public_ip" ]; then
                 echo -e "Akses IP Publik (HTTP): ${YELLOW}http://${public_ip}${NC}"
             fi
-            url_access="http://${local_ip}"
+            docker_target="${local_ip}"
         fi
     else
         echo -e "Reverse Proxy: Tidak Aktif"
@@ -506,20 +506,27 @@ show_success_summary() {
         if [ -n "$public_ip" ]; then
             echo -e "Akses IP Publik: ${YELLOW}http://${public_ip}:${PORT}${NC}"
         fi
-        url_access="${local_ip}:${PORT}"
+        docker_target="${local_ip}:${PORT}"
     fi
     
     echo -e "\nCara Penggunaan (Push & Pull):"
     if [ "$IS_AUTH_ENABLED" = true ]; then
         echo -e "0. Login ke registry terlebih dahulu:"
-        echo -e "   ${YELLOW}docker login ${url_access}${NC} (masukkan username dan password Anda)"
+        echo -e "   ${YELLOW}docker login ${docker_target}${NC} (masukkan username dan password Anda)"
     fi
     echo -e "1. Tag image Anda:"
-    echo -e "   ${YELLOW}docker tag <image-name> ${url_access}/<image-name>${NC}"
+    echo -e "   ${YELLOW}docker tag <image-name> ${docker_target}/<image-name>${NC}"
     echo -e "2. Push ke registry:"
-    echo -e "   ${YELLOW}docker push ${url_access}/<image-name>${NC}"
+    echo -e "   ${YELLOW}docker push ${docker_target}/<image-name>${NC}"
     echo -e "3. Pull dari registry:"
-    echo -e "   ${YELLOW}docker pull ${url_access}/<image-name>${NC}"
+    echo -e "   ${YELLOW}docker pull ${docker_target}/<image-name>${NC}"
+
+    if [ "$USE_HTTPS" != true ]; then
+        echo -e "\n${YELLOW}Catatan untuk HTTP (Insecure Registry):${NC}"
+        echo -e "Karena Anda menggunakan HTTP biasa, Anda perlu menambahkan host ini ke konfigurasi"
+        echo -e "insecure-registries di file /etc/docker/daemon.json di komputer klien Anda:"
+        echo -e "   {\n     \"insecure-registries\": [\"${docker_target}\"]\n   }"
+    fi
 }
 
 # 10. Orchestrator
