@@ -53,24 +53,21 @@ read_input() {
     eval "$var_name=\"\$val\""
 }
 
-# 1. Check if run as root
-if [ "$(id -u)" != "0" ]; then
-    echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root atau dengan sudo.${NC}" >&2
-    exit 1
-fi
+# 1. System Requirements Check
+check_system_requirements() {
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root atau dengan sudo.${NC}" >&2
+        return 1
+    fi
 
-# Check if Linux
-if [ "$(uname)" != "Linux" ]; then
-    echo -e "${RED}Error: Skrip ini hanya mendukung sistem operasi Linux.${NC}" >&2
-    exit 1
-fi
+    if [ "$(uname)" != "Linux" ]; then
+        echo -e "${RED}Error: Skrip ini hanya mendukung sistem operasi Linux.${NC}" >&2
+        return 1
+    fi
+    return 0
+}
 
-# Argument Parsing for Uninstall
-UNINSTALL=false
-if [ "$1" = "uninstall" ] || [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
-    UNINSTALL=true
-fi
-
+# 2. Uninstall Process
 uninstall_registry() {
     echo -e "${YELLOW}Memulai proses uninstall (Full Clean)...${NC}"
     
@@ -92,7 +89,7 @@ uninstall_registry() {
             docker network rm registry-net >/dev/null 2>&1
         fi
     else
-        echo -e "${YELLOW}Docker tidak terdeteksi, melewati proses pembersihan container.${NC}"
+        echo -e "${YELLOW}Docker tidak terdeteksi, melewati pembersihan kontainer.${NC}"
     fi
     
     # 3. Clean up storage data
@@ -117,191 +114,265 @@ uninstall_registry() {
     echo -e "${GREEN}==================================================${NC}"
     echo -e "${GREEN}   Uninstall Selesai! (Resource bersih)           ${NC}"
     echo -e "${GREEN}==================================================${NC}"
-    exit 0
+    return 0
 }
 
-# Run uninstall if argument is active
-if [ "$UNINSTALL" = true ]; then
-    uninstall_registry
-fi
+# 3. Check & Install Docker
+install_docker() {
+    if command_exists docker; then
+        echo -e "${GREEN}✓ Docker sudah terinstall.${NC}"
+        local docker_version_installed
+        docker_version_installed=$(docker --version | awk '{print $3}' | sed 's/,//')
+        echo -e "Versi terinstall: ${docker_version_installed}"
+        return 0
+    fi
 
-# 2. Check & Install Docker
-if command_exists docker; then
-    echo -e "${GREEN}✓ Docker sudah terinstall.${NC}"
-    docker_version_installed=$(docker --version | awk '{print $3}' | sed 's/,//')
-    echo -e "Versi terinstall: ${docker_version_installed}"
-else
     echo -e "${YELLOW}Docker belum terinstall. Menginstal Docker versi ${DOCKER_VERSION}...${NC}"
     curl -sSL https://get.docker.com | sh -s -- --version ${DOCKER_VERSION}
     
     if command_exists apt-mark; then
         echo -e "${BLUE}Mengunci versi paket Docker agar tidak ter-update otomatis...${NC}"
-        apt-mark hold docker-ce docker-ce-cli docker-ce-rootless-extras
+        apt-mark hold docker-ce docker-ce-cli docker-ce-rootless-extras >/dev/null 2>&1
     fi
     
     # Start and enable docker
-    systemctl enable --now docker
+    systemctl enable --now docker >/dev/null 2>&1
     
     if command_exists docker; then
         echo -e "${GREEN}✓ Docker versi $(docker --version) berhasil di-install.${NC}"
-    else
-        echo -e "${RED}Error: Gagal menginstal Docker.${NC}" >&2
-        exit 1
+        return 0
     fi
-fi
 
-# 3. Ask Registry Version
-echo -e "\nPilih versi Container Registry yang ingin dideploy:"
-echo -e "1) Registry v2 (Docker Distribution - Legacy/Stable: registry:2)"
-echo -e "2) Registry v3 (CNCF Distribution OCI Spec - Modern: registry:3.0.0-alpha.1)"
-read_input "Pilihan Anda [1-2] (Default: 2): " choice
-choice=${choice:-2}
+    echo -e "${RED}Error: Gagal menginstal Docker.${NC}" >&2
+    return 1
+}
 
-if [ "$choice" = "1" ]; then
-    REGISTRY_IMAGE="registry:2"
-    VERSION_NAME="v2"
-else
-    REGISTRY_IMAGE="registry:3.0.0-alpha.1"
-    VERSION_NAME="v3"
-fi
-
-# 4. Storage Configuration
-read_input "Tentukan direktori penyimpanan data (Default: $DEFAULT_STORAGE): " STORAGE_DIR
-STORAGE_DIR=${STORAGE_DIR:-$DEFAULT_STORAGE}
-mkdir -p "$STORAGE_DIR"
-
-# 5. Authentication Configuration
-read_input "Aktifkan autentikasi Username & Password? [y/N]: " ENABLE_AUTH
-ENABLE_AUTH=${ENABLE_AUTH:-n}
-
-AUTH_FLAGS=""
-IS_AUTH_ENABLED=false
-if [[ "$ENABLE_AUTH" =~ ^[Yy]$ ]]; then
-    read_input "Masukkan Username: " AUTH_USER
-    read_input "Masukkan Password: " AUTH_PASS "silent"
+# 4. Generate Htpasswd file securely
+generate_htpasswd() {
+    local user="$1"
+    local pass="$2"
+    local out_file="$3"
     
-    AUTH_DIR="${STORAGE_DIR}/auth"
-    mkdir -p "$AUTH_DIR"
-    
-    echo -e "${BLUE}Membuat file kredensial htpasswd...${NC}"
-    docker pull -q registry:2
-    docker run --rm --entrypoint htpasswd registry:2 -Bbn "$AUTH_USER" "$AUTH_PASS" > "${AUTH_DIR}/htpasswd" 2>/dev/null
-    
-    if [ $? -eq 0 ] && [ -s "${AUTH_DIR}/htpasswd" ]; then
-        echo -e "${GREEN}✓ File htpasswd berhasil dibuat.${NC}"
-        AUTH_FLAGS="-v ${AUTH_DIR}:/auth -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=Registry-Realm -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd"
-        IS_AUTH_ENABLED=true
-    else
-        echo -e "${RED}Gagal membuat file htpasswd. Melanjutkan tanpa autentikasi...${NC}"
+    # 1. Gunakan utilitas host lokal jika terpasang (paling cepat & aman)
+    if command_exists htpasswd; then
+        echo -e "${BLUE}Menggunakan utilitas htpasswd lokal host...${NC}"
+        htpasswd -Bbn "$user" "$pass" > "$out_file" 2>/dev/null
+        return $?
     fi
-fi
-
-# 6. Reverse Proxy & ACME Configuration
-read_input "Aktifkan Reverse Proxy (Caddy)? [y/N]: " ENABLE_PROXY
-ENABLE_PROXY=${ENABLE_PROXY:-n}
-
-IS_PROXY_ENABLED=false
-USE_HTTPS=false
-
-if [[ "$ENABLE_PROXY" =~ ^[Yy]$ ]]; then
-    IS_PROXY_ENABLED=true
     
-    read_input "Aktifkan HTTPS/SSL? [y/N]: " ENABLE_HTTPS
-    ENABLE_HTTPS=${ENABLE_HTTPS:-n}
-    
-    if [[ "$ENABLE_HTTPS" =~ ^[Yy]$ ]]; then
-        USE_HTTPS=true
-        read_input "Masukkan Domain Name (misal: registry.kamu.com): " DOMAIN_NAME
-        read_input "Masukkan Email untuk Kontak ACME: " ACME_EMAIL
-        
-        echo -e "\nPilih Provider ACME:"
-        echo -e "1) Let's Encrypt"
-        echo -e "2) ZeroSSL (Membutuhkan EAB)"
-        echo -e "3) Custom ACME (misal: Step-CA / Local CA)"
-        read_input "Pilihan Anda [1-3] (Default: 1): " ACME_CHOICE
-        ACME_CHOICE=${ACME_CHOICE:-1}
-        
-        if [ "$ACME_CHOICE" = "2" ]; then
-            read_input "Masukkan ZeroSSL EAB KID: " EAB_KID
-            read_input "Masukkan ZeroSSL EAB HMAC Key: " EAB_HMAC
-        elif [ "$ACME_CHOICE" = "3" ]; then
-            read_input "Masukkan ACME Directory URL (misal: https://step-ca.local/acme/acme/directory): " ACME_URL
-            read_input "Masukkan path file Root CA Certificate lokal (opsional): " CUSTOM_CA_PATH
-        fi
-    else
-        # Pada HTTP, Caddy dikonfigurasi sebagai catch-all (:80) sehingga bisa diakses dari IP/domain apa saja.
-        # Input ini hanya digunakan untuk menampilkan petunjuk cara penggunaan di akhir skrip.
-        read_input "Masukkan Domain Name / Host IP utama untuk petunjuk HTTP (Default: localhost): " DOMAIN_NAME
-        DOMAIN_NAME=${DOMAIN_NAME:-localhost}
-    fi
-else
-    # Tanpa Reverse Proxy: Butuh Port ekspos langsung ke host
-    read_input "Tentukan port ekspos registry ke host (Default: $DEFAULT_PORT): " PORT
-    PORT=${PORT:-$DEFAULT_PORT}
-    
-    if command_exists ss; then
-        if ss -tulnp | grep -q ":${PORT} "; then
-            echo -e "${RED}Error: Port ${PORT} sudah digunakan oleh service lain.${NC}" >&2
-            exit 1
+    # 2. Gunakan Docker dengan image httpd:alpine (ringan dan pasti memiliki htpasswd)
+    if command_exists docker; then
+        echo -e "${BLUE}Menggunakan kontainer httpd:alpine untuk membuat htpasswd...${NC}"
+        docker pull -q httpd:alpine >/dev/null 2>&1
+        docker run --rm --entrypoint htpasswd httpd:alpine -Bbn "$user" "$pass" > "$out_file" 2>/dev/null
+        if [ $? -eq 0 ] && [ -s "$out_file" ]; then
+            return 0
         fi
     fi
-fi
+    return 1
+}
 
-# 7. Network Creation (jika menggunakan proxy)
-if [ "$IS_PROXY_ENABLED" = true ]; then
-    if ! docker network inspect registry-net >/dev/null 2>&1; then
-        echo -e "${BLUE}Membuat docker network: registry-net...${NC}"
-        docker network create registry-net >/dev/null
+# 5. Setup authentication flow
+setup_authentication() {
+    read_input "Aktifkan autentikasi Username & Password? [y/N]: " ENABLE_AUTH
+    ENABLE_AUTH=${ENABLE_AUTH:-n}
+    
+    AUTH_FLAGS=""
+    IS_AUTH_ENABLED=false
+    
+    if [[ "$ENABLE_AUTH" =~ ^[Yy]$ ]]; then
+        read_input "Masukkan Username: " AUTH_USER
+        if [ -z "$AUTH_USER" ]; then
+            echo -e "${RED}Error: Username tidak boleh kosong! Autentikasi dibatalkan.${NC}" >&2
+            return 1
+        fi
+        
+        read_input "Masukkan Password: " AUTH_PASS "silent"
+        if [ -z "$AUTH_PASS" ]; then
+            echo -e "${RED}Error: Password tidak boleh kosong! Autentikasi dibatalkan.${NC}" >&2
+            return 1
+        fi
+        
+        local auth_dir="${STORAGE_DIR}/auth"
+        mkdir -p "$auth_dir"
+        
+        echo -e "${BLUE}Membuat file kredensial htpasswd...${NC}"
+        if generate_htpasswd "$AUTH_USER" "$AUTH_PASS" "${auth_dir}/htpasswd"; then
+            echo -e "${GREEN}✓ File htpasswd berhasil dibuat.${NC}"
+            AUTH_FLAGS="-v ${auth_dir}:/auth -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=Registry-Realm -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd"
+            IS_AUTH_ENABLED=true
+            return 0
+        else
+            echo -e "${RED}Error: Gagal membuat file htpasswd.${NC}" >&2
+            return 1
+        fi
     fi
-fi
+    return 0
+}
 
-# 8. Clean up old containers
-if docker ps -a --format '{{.Names}}' | grep -Eq "^docker-registry$"; then
-    echo -e "${YELLOW}Menghapus container docker-registry lama...${NC}"
-    docker rm -f docker-registry >/dev/null 2>&1
-fi
+# 6. Collect user configurations
+collect_user_inputs() {
+    echo -e "\nPilih versi Container Registry yang ingin dideploy:"
+    echo -e "1) Registry v2 (Docker Distribution - Legacy/Stable: registry:2)"
+    echo -e "2) Registry v3 (CNCF Distribution OCI Spec - Modern: registry:3.0.0-alpha.1)"
+    read_input "Pilihan Anda [1-2] (Default: 2): " choice
+    choice=${choice:-2}
+    
+    if [ "$choice" = "1" ]; then
+        REGISTRY_IMAGE="registry:2"
+        VERSION_NAME="v2"
+    else
+        REGISTRY_IMAGE="registry:3.0.0-alpha.1"
+        VERSION_NAME="v3"
+    fi
+    
+    read_input "Tentukan direktori penyimpanan data (Default: $DEFAULT_STORAGE): " STORAGE_DIR
+    STORAGE_DIR=${STORAGE_DIR:-$DEFAULT_STORAGE}
+    mkdir -p "$STORAGE_DIR"
+    
+    # Run authentication setup
+    if ! setup_authentication; then
+        return 1
+    fi
+    
+    # Proxy configuration
+    read_input "Aktifkan Reverse Proxy (Caddy)? [y/N]: " ENABLE_PROXY
+    ENABLE_PROXY=${ENABLE_PROXY:-n}
+    
+    IS_PROXY_ENABLED=false
+    USE_HTTPS=false
+    
+    if [[ "$ENABLE_PROXY" =~ ^[Yy]$ ]]; then
+        IS_PROXY_ENABLED=true
+        
+        read_input "Aktifkan HTTPS/SSL? [y/N]: " ENABLE_HTTPS
+        ENABLE_HTTPS=${ENABLE_HTTPS:-n}
+        
+        if [[ "$ENABLE_HTTPS" =~ ^[Yy]$ ]]; then
+            USE_HTTPS=true
+            read_input "Masukkan Domain Name (misal: registry.kamu.com): " DOMAIN_NAME
+            if [ -z "$DOMAIN_NAME" ]; then
+                echo -e "${RED}Error: Domain Name tidak boleh kosong!${NC}" >&2
+                return 1
+            fi
+            
+            read_input "Masukkan Email untuk Kontak ACME: " ACME_EMAIL
+            if [ -z "$ACME_EMAIL" ]; then
+                echo -e "${RED}Error: Email ACME tidak boleh kosong!${NC}" >&2
+                return 1
+            fi
+            
+            echo -e "\nPilih Provider ACME:"
+            echo -e "1) Let's Encrypt"
+            echo -e "2) ZeroSSL (Membutuhkan EAB)"
+            echo -e "3) Custom ACME (misal: Step-CA / Local CA)"
+            read_input "Pilihan Anda [1-3] (Default: 1): " ACME_CHOICE
+            ACME_CHOICE=${ACME_CHOICE:-1}
+            
+            if [ "$ACME_CHOICE" = "2" ]; then
+                read_input "Masukkan ZeroSSL EAB KID: " EAB_KID
+                read_input "Masukkan ZeroSSL EAB HMAC Key: " EAB_HMAC
+                if [ -z "$EAB_KID" ] || [ -z "$EAB_HMAC" ]; then
+                    echo -e "${RED}Error: ZeroSSL EAB KID dan HMAC Key tidak boleh kosong!${NC}" >&2
+                    return 1
+                fi
+            elif [ "$ACME_CHOICE" = "3" ]; then
+                read_input "Masukkan ACME Directory URL (misal: https://step-ca.local/acme/acme/directory): " ACME_URL
+                if [ -z "$ACME_URL" ]; then
+                    echo -e "${RED}Error: ACME Directory URL tidak boleh kosong!${NC}" >&2
+                    return 1
+                fi
+                read_input "Masukkan path file Root CA Certificate lokal (opsional): " CUSTOM_CA_PATH
+            fi
+        else
+            # Pada HTTP, Caddy dikonfigurasi sebagai catch-all (:80) sehingga bisa diakses dari IP/domain apa saja.
+            read_input "Masukkan Domain Name / Host IP utama untuk petunjuk HTTP (Default: localhost): " DOMAIN_NAME
+            DOMAIN_NAME=${DOMAIN_NAME:-localhost}
+        fi
+    else
+        # Tanpa Reverse Proxy: Butuh Port ekspos langsung ke host
+        read_input "Tentukan port ekspos registry ke host (Default: $DEFAULT_PORT): " PORT
+        PORT=${PORT:-$DEFAULT_PORT}
+        
+        if command_exists ss; then
+            if ss -tulnp | grep -q ":${PORT} "; then
+                echo -e "${RED}Error: Port ${PORT} sudah digunakan oleh service lain.${NC}" >&2
+                return 1
+            fi
+        fi
+    fi
+    return 0
+}
 
-if docker ps -a --format '{{.Names}}' | grep -Eq "^registry-proxy$"; then
-    echo -e "${YELLOW}Menghapus container registry-proxy lama...${NC}"
-    docker rm -f registry-proxy >/dev/null 2>&1
-fi
+# 7. Deploy Registry Container
+deploy_registry() {
+    # Network Creation (jika menggunakan proxy)
+    if [ "$IS_PROXY_ENABLED" = true ]; then
+        if ! docker network inspect registry-net >/dev/null 2>&1; then
+            echo -e "${BLUE}Membuat docker network: registry-net...${NC}"
+            if ! docker network create registry-net >/dev/null; then
+                echo -e "${RED}Error: Gagal membuat docker network.${NC}" >&2
+                return 1
+            fi
+        fi
+    fi
 
-# 9. Deploy Registry Container
-echo -e "${BLUE}Mendeploy Container Registry ${VERSION_NAME}...${NC}"
+    # Clean up old containers
+    if docker ps -a --format '{{.Names}}' | grep -Eq "^docker-registry$"; then
+        echo -e "${YELLOW}Menghapus container docker-registry lama...${NC}"
+        docker rm -f docker-registry >/dev/null 2>&1
+    fi
+    
+    if docker ps -a --format '{{.Names}}' | grep -Eq "^registry-proxy$"; then
+        echo -e "${YELLOW}Menghapus container registry-proxy lama...${NC}"
+        docker rm -f registry-proxy >/dev/null 2>&1
+    fi
 
-if [ "$IS_PROXY_ENABLED" = true ]; then
-    # Jika pakai proxy, taruh di network dan tidak ekspos port ke publik
-    docker run -d \
-        --name docker-registry \
-        --network registry-net \
-        --restart always \
-        -v "${STORAGE_DIR}":/var/lib/registry \
-        ${AUTH_FLAGS} \
-        "${REGISTRY_IMAGE}"
-else
-    # Tanpa proxy, ekspos port langsung ke host
-    docker run -d \
-        --name docker-registry \
-        --restart always \
-        -p "${PORT}":5000 \
-        -v "${STORAGE_DIR}":/var/lib/registry \
-        ${AUTH_FLAGS} \
-        "${REGISTRY_IMAGE}"
-fi
+    echo -e "${BLUE}Mendeploy Container Registry ${VERSION_NAME}...${NC}"
+    
+    if [ "$IS_PROXY_ENABLED" = true ]; then
+        # Jika pakai proxy, taruh di network dan tidak ekspos port ke publik
+        docker run -d \
+            --name docker-registry \
+            --network registry-net \
+            --restart always \
+            -v "${STORAGE_DIR}":/var/lib/registry \
+            ${AUTH_FLAGS} \
+            "${REGISTRY_IMAGE}"
+    else
+        # Tanpa proxy, ekspos port langsung ke host
+        docker run -d \
+            --name docker-registry \
+            --restart always \
+            -p "${PORT}":5000 \
+            -v "${STORAGE_DIR}":/var/lib/registry \
+            ${AUTH_FLAGS} \
+            "${REGISTRY_IMAGE}"
+    fi
+    
+    if [ $? -eq 0 ]; then
+        return 0
+    fi
+    return 1
+}
 
-# 10. Configure and Deploy Caddy (jika proxy aktif)
-if [ "$IS_PROXY_ENABLED" = true ]; then
+# 8. Configure and Deploy Caddy (jika proxy aktif)
+configure_and_deploy_proxy() {
+    if [ "$IS_PROXY_ENABLED" != true ]; then
+        return 0
+    fi
+
     echo -e "${BLUE}Mengonfigurasi Caddy Reverse Proxy...${NC}"
-    CADDY_DIR="${STORAGE_DIR}/caddy"
-    mkdir -p "${CADDY_DIR}/data" "${CADDY_DIR}/config"
+    local caddy_dir="${STORAGE_DIR}/caddy"
+    mkdir -p "${caddy_dir}/data" "${caddy_dir}/config"
     
     # Generate Caddyfile
-    CADDYFILE_PATH="${CADDY_DIR}/Caddyfile"
+    local caddyfile_path="${caddy_dir}/Caddyfile"
     
     if [ "$USE_HTTPS" = true ]; then
         if [ "$ACME_CHOICE" = "1" ]; then
             # Let's Encrypt
-            cat <<EOF > "$CADDYFILE_PATH"
+            cat <<EOF > "$caddyfile_path"
 $DOMAIN_NAME {
     tls $ACME_EMAIL
     reverse_proxy docker-registry:5000
@@ -309,7 +380,7 @@ $DOMAIN_NAME {
 EOF
         elif [ "$ACME_CHOICE" = "2" ]; then
             # ZeroSSL dengan EAB
-            cat <<EOF > "$CADDYFILE_PATH"
+            cat <<EOF > "$caddyfile_path"
 $DOMAIN_NAME {
     tls $ACME_EMAIL {
         ca https://acme.zerossl.com/v2/DV90
@@ -321,7 +392,7 @@ EOF
         elif [ "$ACME_CHOICE" = "3" ]; then
             # Custom ACME (Step-CA)
             if [ -n "$CUSTOM_CA_PATH" ] && [ -f "$CUSTOM_CA_PATH" ]; then
-                cat <<EOF > "$CADDYFILE_PATH"
+                cat <<EOF > "$caddyfile_path"
 $DOMAIN_NAME {
     tls $ACME_EMAIL {
         ca $ACME_URL
@@ -331,7 +402,7 @@ $DOMAIN_NAME {
 }
 EOF
             else
-                cat <<EOF > "$CADDYFILE_PATH"
+                cat <<EOF > "$caddyfile_path"
 $DOMAIN_NAME {
     tls $ACME_EMAIL {
         ca $ACME_URL
@@ -343,7 +414,7 @@ EOF
         fi
     else
         # HTTP Saja (Catch-all :80 agar semua domain & IP bisa masuk tanpa dibatasi)
-        cat <<EOF > "$CADDYFILE_PATH"
+        cat <<EOF > "$caddyfile_path"
 :80 {
     reverse_proxy docker-registry:5000
 }
@@ -351,9 +422,9 @@ EOF
     fi
     
     echo -e "${BLUE}Mendeploy Caddy Reverse Proxy Container...${NC}"
-    CADDY_VOLUME_CA=""
+    local caddy_volume_ca=""
     if [ "$USE_HTTPS" = true ] && [ "$ACME_CHOICE" = "3" ] && [ -n "$CUSTOM_CA_PATH" ] && [ -f "$CUSTOM_CA_PATH" ]; then
-        CADDY_VOLUME_CA="-v ${CUSTOM_CA_PATH}:/etc/caddy/root.crt"
+        caddy_volume_ca="-v ${CUSTOM_CA_PATH}:/etc/caddy/root.crt"
     fi
     
     docker run -d \
@@ -362,48 +433,91 @@ EOF
         --restart always \
         -p 80:80 \
         -p 443:443 \
-        -v "$CADDYFILE_PATH":/etc/caddy/Caddyfile \
-        -v "${CADDY_DIR}/data":/data \
-        -v "${CADDY_DIR}/config":/config \
-        $CADDY_VOLUME_CA \
+        -v "$caddyfile_path":/etc/caddy/Caddyfile \
+        -v "${caddy_dir}/data":/data \
+        -v "${caddy_dir}/config":/config \
+        $caddy_volume_ca \
         caddy:latest
-fi
+        
+    if [ $? -eq 0 ]; then
+        return 0
+    fi
+    return 1
+}
 
-# 11. Final Verification & Instructions
-if [ $? -eq 0 ]; then
+# 9. Summary & Instructions
+show_success_summary() {
     echo -e "${GREEN}==================================================${NC}"
     echo -e "${GREEN}   Container Registry Berhasil Dideploy!          ${NC}"
     echo -e "${GREEN}==================================================${NC}"
     echo -e "Versi Registry: ${VERSION_NAME} (${REGISTRY_IMAGE})"
     echo -e "Direktori Storage: ${STORAGE_DIR}"
     
+    local url_access=""
     if [ "$IS_PROXY_ENABLED" = true ]; then
         echo -e "Reverse Proxy: Caddy (Aktif)"
         if [ "$USE_HTTPS" = true ]; then
             echo -e "Domain / URL: ${YELLOW}https://${DOMAIN_NAME}${NC}"
-            URL_ACCESS="https://${DOMAIN_NAME}"
+            url_access="https://${DOMAIN_NAME}"
         else
             echo -e "Domain / URL: ${YELLOW}http://${DOMAIN_NAME}${NC}"
-            URL_ACCESS="http://${DOMAIN_NAME}"
+            url_access="http://${DOMAIN_NAME}"
         fi
     else
         echo -e "Reverse Proxy: Tidak Aktif"
         echo -e "Port Ekspos Host: ${PORT}"
-        URL_ACCESS="localhost:${PORT}"
+        url_access="localhost:${PORT}"
     fi
     
     echo -e "\nCara Penggunaan (Push & Pull):"
     if [ "$IS_AUTH_ENABLED" = true ]; then
         echo -e "0. Login ke registry terlebih dahulu:"
-        echo -e "   ${YELLOW}docker login ${URL_ACCESS}${NC} (masukkan username dan password Anda)"
+        echo -e "   ${YELLOW}docker login ${url_access}${NC} (masukkan username dan password Anda)"
     fi
     echo -e "1. Tag image Anda:"
-    echo -e "   ${YELLOW}docker tag <image-name> ${URL_ACCESS}/<image-name>${NC}"
+    echo -e "   ${YELLOW}docker tag <image-name> ${url_access}/<image-name>${NC}"
     echo -e "2. Push ke registry:"
-    echo -e "   ${YELLOW}docker push ${URL_ACCESS}/<image-name>${NC}"
+    echo -e "   ${YELLOW}docker push ${url_access}/<image-name>${NC}"
     echo -e "3. Pull dari registry:"
-    echo -e "   ${YELLOW}docker pull ${URL_ACCESS}/<image-name>${NC}"
-else
+    echo -e "   ${YELLOW}docker pull ${url_access}/<image-name>${NC}"
+}
+
+# 10. Orchestrator
+main() {
+    # Check if run as uninstall
+    local uninstall_arg=false
+    if [ "$1" = "uninstall" ] || [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
+        uninstall_arg=true
+    fi
+
+    # 1. Check system requirements
+    if ! check_system_requirements; then
+        return 1
+    fi
+    
+    # 2. Run uninstall if requested
+    if [ "$uninstall_arg" = true ]; then
+        uninstall_registry
+        return $?
+    fi
+    
+    # 3. Main deployment pipeline (Nested-If / Modular)
+    if install_docker; then
+        if collect_user_inputs; then
+            if deploy_registry; then
+                if configure_and_deploy_proxy; then
+                    show_success_summary
+                    return 0
+                fi
+            fi
+        fi
+    fi
+    
     echo -e "${RED}Error: Gagal mendeploy container registry / reverse proxy.${NC}" >&2
-    exit 1
-fi
+    return 1
+}
+
+# Execute main
+main "$@"
+exit_code=$?
+exit $exit_code
