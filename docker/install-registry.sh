@@ -28,6 +28,66 @@ if [ "$(uname)" != "Linux" ]; then
     exit 1
 fi
 
+# Argument Parsing for Uninstall
+UNINSTALL=false
+if [ "$1" = "uninstall" ] || [ "$1" = "--uninstall" ] || [ "$1" = "-u" ]; then
+    UNINSTALL=true
+fi
+
+uninstall_registry() {
+    echo -e "${YELLOW}Memulai proses uninstall (Full Clean)...${NC}"
+    
+    # 1. Stop and remove containers
+    if command_exists docker; then
+        if docker ps -a --format '{{.Names}}' | grep -Eq "^docker-registry$"; then
+            echo -e "${BLUE}Menghentikan dan menghapus container docker-registry...${NC}"
+            docker rm -f docker-registry >/dev/null 2>&1
+        fi
+        
+        if docker ps -a --format '{{.Names}}' | grep -Eq "^registry-proxy$"; then
+            echo -e "${BLUE}Menghentikan dan menghapus container registry-proxy (Caddy)...${NC}"
+            docker rm -f registry-proxy >/dev/null 2>&1
+        fi
+        
+        # 2. Remove Docker Network
+        if docker network inspect registry-net >/dev/null 2>&1; then
+            echo -e "${BLUE}Menghapus network registry-net...${NC}"
+            docker network rm registry-net >/dev/null 2>&1
+        fi
+    else
+        echo -e "${YELLOW}Docker tidak terdeteksi, melewati proses pembersihan container.${NC}"
+    fi
+    
+    # 3. Clean up storage data
+    read -rp "Tentukan direktori data yang ingin dihapus (Default: $DEFAULT_STORAGE): " STORAGE_DIR
+    STORAGE_DIR=${STORAGE_DIR:-$DEFAULT_STORAGE}
+    
+    if [ -d "$STORAGE_DIR" ]; then
+        echo -e "${RED}Peringatan: Seluruh data registry di '$STORAGE_DIR' akan dihapus permanen!${NC}"
+        read -rp "Apakah Anda yakin ingin menghapus folder ini? [y/N]: " CONFIRM
+        CONFIRM=${CONFIRM:-n}
+        if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Menghapus direktori data: $STORAGE_DIR...${NC}"
+            rm -rf "$STORAGE_DIR"
+            echo -e "${GREEN}✓ Direktori data berhasil dihapus.${NC}"
+        else
+            echo -e "${YELLOW}Penghapusan direktori data dibatalkan oleh pengguna.${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Direktori $STORAGE_DIR tidak ditemukan. Tidak ada data yang dihapus.${NC}"
+    fi
+    
+    echo -e "${GREEN}==================================================${NC}"
+    echo -e "${GREEN}   Uninstall Selesai! (Resource bersih)           ${NC}"
+    echo -e "${GREEN}==================================================${NC}"
+    exit 0
+}
+
+# Run uninstall if argument is active
+if [ "$UNINSTALL" = true ]; then
+    uninstall_registry
+fi
+
 command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
