@@ -37,7 +37,7 @@
         }
 
         @media (prefers-color-scheme: dark) {
-            :root {
+            :root:not(.light) {
                 --background: oklch(0.145 0 0);
                 --foreground: oklch(0.985 0 0);
                 --card: oklch(0.205 0 0);
@@ -54,6 +54,24 @@
                 --border: oklch(1 0 0 / 10%);
                 --input: oklch(1 0 0 / 15%);
             }
+        }
+
+        :root.dark {
+            --background: oklch(0.145 0 0);
+            --foreground: oklch(0.985 0 0);
+            --card: oklch(0.205 0 0);
+            --card-foreground: oklch(0.985 0 0);
+            --primary: oklch(0.473 0.137 46.201);
+            --primary-foreground: oklch(0.987 0.022 95.277);
+            --secondary: oklch(0.274 0.006 286.033);
+            --secondary-foreground: oklch(0.985 0 0);
+            --muted: oklch(0.269 0 0);
+            --muted-foreground: oklch(0.708 0 0);
+            --accent: oklch(0.269 0 0);
+            --accent-foreground: oklch(0.985 0 0);
+            --destructive: oklch(0.704 0.191 22.216);
+            --border: oklch(1 0 0 / 10%);
+            --input: oklch(1 0 0 / 15%);
         }
 
         /* ========================================
@@ -128,6 +146,49 @@
             background-color: var(--primary);
             color: var(--primary-foreground);
             border-radius: 0;
+        }
+
+        /* Theme Toggle Button */
+        .theme-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--foreground);
+            padding: 5px 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0;
+            transition: background-color 0.15s ease;
+        }
+
+        .theme-btn:hover {
+            background-color: var(--muted);
+        }
+
+        .sun-icon {
+            display: none;
+        }
+
+        .moon-icon {
+            display: block;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not(.light) .sun-icon {
+                display: block;
+            }
+            :root:not(.light) .moon-icon {
+                display: none;
+            }
+        }
+
+        :root.dark .sun-icon {
+            display: block;
+        }
+
+        :root.dark .moon-icon {
+            display: none;
         }
 
         /* ========================================
@@ -359,7 +420,15 @@
     <header class="header">
         <div class="container header-inner">
             <span class="header-title">Container Registry</span>
-            <span class="header-badge">Private</span>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+                    <!-- Sun icon -->
+                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                    <!-- Moon icon -->
+                    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                </button>
+                <span class="header-badge">Private</span>
+            </div>
         </div>
     </header>
 
@@ -438,8 +507,16 @@
     <section class="section">
         <div class="container">
             <h2 class="section-title">HTTP Configuration</h2>
-            <div class="note">
+            <div class="note" style="margin-bottom: 16px;">
                 <strong>Insecure Registry Note:</strong> If this registry is served over plain HTTP, you need to add it to your Docker daemon's <code>insecure-registries</code> list in <code>/etc/docker/daemon.json</code> on the client machine, then restart Docker.
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                <pre><code>{
+  "insecure-registries": [
+    "&lt;registry-host&gt;"
+  ]
+}</code></pre>
             </div>
         </div>
     </section>
@@ -475,6 +552,22 @@
                 }, 1500);
             });
         }
+
+        // Theme Toggle Logic
+        document.getElementById('theme-toggle').addEventListener('click', function() {
+            const root = document.documentElement;
+            const isDarkSystem = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            
+            if (isDarkSystem) {
+                // System prefers dark: toggle '.light' class to force light mode
+                root.classList.toggle('light');
+                root.classList.remove('dark');
+            } else {
+                // System prefers light: toggle '.dark' class to force dark mode
+                root.classList.toggle('dark');
+                root.classList.remove('light');
+            }
+        });
     </script>
 </body>
 </html>
