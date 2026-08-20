@@ -17,9 +17,14 @@ This repository contains a collection of shell scripts to simplify system admini
     * **Full Clean Uninstall**: Remove containers, networks, and storage directories.
   * **How to use (Direct via curl)**:
     You can run the installer script directly on your server without cloning the repository:
-    ```bash
-    curl -sSL https://raw.githubusercontent.com/dyzulk/scripts/main/docker/install-registry.sh | sudo bash
-    ```
+    * **Install**:
+      ```bash
+      curl -sSL https://raw.githubusercontent.com/dyzulk/scripts/main/docker/install-registry.sh | sudo bash
+      ```
+    * **Uninstall (Full Clean)**:
+      ```bash
+      curl -sSL https://raw.githubusercontent.com/dyzulk/scripts/main/docker/install-registry.sh | sudo bash -s -- uninstall
+      ```
   * **How to use (Local execution)**:
     * **Install**:
       ```bash
