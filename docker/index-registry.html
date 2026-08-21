@@ -521,6 +521,79 @@
         </div>
     </section>
 
+    <!-- Root CA Configuration -->
+    <section class="section">
+        <div class="container">
+            <h2 class="section-title">Trust Root CA (Self-Signed / Internal CA)</h2>
+            <p style="font-size: 14px; color: var(--muted-foreground); margin-bottom: 16px;">
+                If your registry is using a Self-Signed/Internal CA certificate, you must trust the Root CA on client machines or within Docker containers to avoid security warnings.
+            </p>
+            
+            <div style="margin-bottom: 24px;">
+                <a href="/ca.crt" class="theme-btn" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 16px; font-weight: 500; font-size: 14px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download Root CA (ca.crt)
+                </a>
+            </div>
+
+            <!-- Step 1: VM/LXC Host -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-label">1. Trust CA on Client Host (VM / LXC / PC)</span>
+                </div>
+                <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">Run this command to fetch and trust the CA certificate at the OS level:</p>
+                <div class="code-block">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <pre><code># Debian / Ubuntu / Dokploy Host
+sudo mkdir -p /usr/local/share/ca-certificates && \
+sudo curl -kfsSL https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt -o /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt && \
+sudo update-ca-certificates && \
+sudo systemctl restart docker</code></pre>
+                </div>
+                <div class="code-block" style="margin-top: 8px;">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <pre><code># Alpine Linux (LXC)
+apk add --no-cache ca-certificates curl && \
+mkdir -p /usr/local/share/ca-certificates && \
+curl -kfsSL https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt -o /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt && \
+update-ca-certificates</code></pre>
+                </div>
+            </div>
+
+            <!-- Step 2: Docker Containers -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-label">2. Trust CA inside Docker Containers</span>
+                </div>
+                <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">If you have a container running on a client machine that needs to pull/interact with this registry, choose one of these options:</p>
+                
+                <p style="font-size: 12px; font-weight: 600; margin-top: 12px; margin-bottom: 4px;">Option A: Mount host's CA (Recommended & Clean)</p>
+                <div class="code-block" style="margin-bottom: 12px;">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <pre><code># Docker CLI mount
+docker run -v /etc/ssl/certs:/etc/ssl/certs:ro &lt;image&gt;
+
+# Docker Compose mount
+volumes:
+  - /etc/ssl/certs:/etc/ssl/certs:ro</code></pre>
+                </div>
+
+                <p style="font-size: 12px; font-weight: 600; margin-top: 12px; margin-bottom: 4px;">Option B: Install CA during Image Build (Dockerfile)</p>
+                <div class="code-block">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <pre><code># For Debian/Ubuntu-based images
+ADD https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt
+RUN chmod 644 /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt && update-ca-certificates
+
+# For Alpine-based images
+RUN apk add --no-cache ca-certificates
+ADD https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt
+RUN chmod 644 /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt && update-ca-certificates</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
         <div class="container footer-inner">

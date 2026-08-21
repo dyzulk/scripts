@@ -270,6 +270,15 @@ download_landing_page() {
     local html_dir="${STORAGE_DIR}/caddy/html"
     mkdir -p "$html_dir"
 
+    # Cek apakah file lokal index-registry.html ada di direktori skrip ini
+    local script_dir
+    script_dir=$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo ".")
+    if [ -f "${script_dir}/index-registry.html" ]; then
+        echo -e "${GREEN}✓ Menemukan index-registry.html lokal. Menyalin...${NC}"
+        cp "${script_dir}/index-registry.html" "${html_dir}/index.html"
+        return 0
+    fi
+
     echo -e "${BLUE}Mengunduh landing page dari repository...${NC}"
     if curl -fsSL "${LANDING_PAGE_URL}" -o "${html_dir}/index.html"; then
         echo -e "${GREEN}✓ Landing page berhasil diunduh ke ${html_dir}/index.html${NC}"
