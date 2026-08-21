@@ -536,19 +536,32 @@
                 </a>
             </div>
 
-            <!-- Step 1: VM/LXC Host -->
+            <!-- Step 1: Docker Daemon -->
             <div class="step">
                 <div class="step-header">
-                    <span class="step-label">1. Trust CA on Client Host (VM / LXC / PC)</span>
+                    <span class="step-label">1. Configure Docker Daemon (on Client / Dokploy Host)</span>
                 </div>
-                <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">Run this command to fetch and trust the CA certificate at the OS level:</p>
+                <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">Run this command to make the Docker daemon trust this registry specifically:</p>
                 <div class="code-block">
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-                    <pre><code># Debian / Ubuntu / Dokploy Host
+                    <pre><code>sudo mkdir -p /etc/docker/certs.d/<span class="registry-host">&lt;registry-host&gt;</span> && \
+sudo curl -kfsSL https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt -o /etc/docker/certs.d/<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt && \
+sudo systemctl restart docker</code></pre>
+                </div>
+            </div>
+
+            <!-- Step 2: VM/LXC Host -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-label">2. Trust CA globally on Client Host (VM / LXC / PC)</span>
+                </div>
+                <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">If you want other tools (like curl, wget, or local applications) on the host to trust this certificate globally:</p>
+                <div class="code-block">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <pre><code># Debian / Ubuntu Host
 sudo mkdir -p /usr/local/share/ca-certificates && \
 sudo curl -kfsSL https://<span class="registry-host">&lt;registry-host&gt;</span>/ca.crt -o /usr/local/share/ca-certificates/<span class="registry-host">&lt;registry-host&gt;</span>.crt && \
-sudo update-ca-certificates && \
-sudo systemctl restart docker</code></pre>
+sudo update-ca-certificates</code></pre>
                 </div>
                 <div class="code-block" style="margin-top: 8px;">
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -560,10 +573,10 @@ update-ca-certificates</code></pre>
                 </div>
             </div>
 
-            <!-- Step 2: Docker Containers -->
+            <!-- Step 3: Docker Containers -->
             <div class="step">
                 <div class="step-header">
-                    <span class="step-label">2. Trust CA inside Docker Containers</span>
+                    <span class="step-label">3. Trust CA inside Docker Containers</span>
                 </div>
                 <p style="font-size: 13px; color: var(--muted-foreground); margin-bottom: 8px;">If you have a container running on a client machine that needs to pull/interact with this registry, choose one of these options:</p>
                 
